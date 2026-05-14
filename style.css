@@ -1,0 +1,42 @@
+body {
+  background: #ffe8b0;
+  font-family: Arial;
+  text-align: center;
+  padding: 30px;
+}
+
+h1 {
+  font-size: 50px;
+}
+
+#money {
+  font-size: 30px;
+  margin-bottom: 20px;
+}
+
+#truck {
+  font-size: 80px;
+  margin-bottom: 30px;
+}
+
+button {
+  padding: 15px 25px;
+  font-size: 20px;
+  margin: 10px;
+  border: none;
+  border-radius: 12px;
+  cursor: pointer;
+}
+
+#burgerBtn {
+  background: orange;
+}
+
+#friesBtn {
+  background: gold;
+}
+
+#log {
+  margin-top: 30px;
+  font-size: 24px;
+}
