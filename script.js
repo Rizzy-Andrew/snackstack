@@ -1,3 +1,18 @@
+const canvas = document.getElementById("game");
+const ctx = canvas.getContext("2d");
+
+canvas.width = 800;
+canvas.height = 500;
+
+// PLAYER
+const player = {
+  x: 100,
+  y: 100,
+  size: 30,
+  speed: 4,
+  color: "orange"
+};
+
 let money = 100;
 
 const moneyText = document.getElementById("money");
@@ -7,34 +22,39 @@ function updateMoney() {
   moneyText.textContent = "Money: $" + money;
 }
 
-document.getElementById("burgerBtn").addEventListener("click", function() {
+// INPUT
+const keys = {};
 
-  log.textContent = "Cooking burger...";
+document.addEventListener("keydown", (e) => keys[e.key] = true);
+document.addEventListener("keyup", (e) => keys[e.key] = false);
 
-  setTimeout(function() {
+// MOVE PLAYER
+function movePlayer() {
+  if (keys["w"]) player.y -= player.speed;
+  if (keys["s"]) player.y += player.speed;
+  if (keys["a"]) player.x -= player.speed;
+  if (keys["d"]) player.x += player.speed;
 
-    money += 15;
+  // boundaries
+  player.x = Math.max(0, Math.min(canvas.width - player.size, player.x));
+  player.y = Math.max(0, Math.min(canvas.height - player.size, player.y));
+}
 
-    updateMoney();
+// DRAW
+function draw() {
+  ctx.clearRect(0, 0, canvas.width, canvas.height);
 
-    log.textContent = "Sold burger for $15!";
+  // player
+  ctx.fillStyle = player.color;
+  ctx.fillRect(player.x, player.y, player.size, player.size);
+}
 
-  }, 2000);
+// GAME LOOP
+function loop() {
+  movePlayer();
+  draw();
+  requestAnimationFrame(loop);
+}
 
-});
-
-document.getElementById("friesBtn").addEventListener("click", function() {
-
-  log.textContent = "Cooking fries...";
-
-  setTimeout(function() {
-
-    money += 8;
-
-    updateMoney();
-
-    log.textContent = "Sold fries for $8!";
-
-  }, 1500);
-
-});
+loop();
+updateMoney();
