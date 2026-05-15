@@ -234,9 +234,12 @@ function tryServeCustomer() {
   let nearest = null;
   let minDist = 80;
   
-  for (let c of customers) {
+  for (let i = 0; i < customers.length; i++) {
+    const c = customers[i];
     if (c.waiting && !c.isServed) {
-      const dist = Math.hypot(player.x - c.x, player.y - c.y);
+      const dx = player.x - c.x;
+      const dy = player.y - c.y;
+      const dist = Math.sqrt(dx * dx + dy * dy);
       if (dist < minDist) {
         nearest = c;
         minDist = dist;
@@ -283,7 +286,9 @@ function updateSibling() {
   
   if (target) {
     sibling.target = target;
-    const dist = Math.hypot(sibling.x - target.x, sibling.y - target.y);
+    const dx = sibling.x - target.x;
+    const dy = sibling.y - target.y;
+    const dist = Math.sqrt(dx * dx + dy * dy);
     
     if (dist > 40) {
       // Move toward customer
@@ -297,7 +302,10 @@ function updateSibling() {
     }
   } else {
     // Idle - move back to truck
-    if (Math.hypot(sibling.x - 150, sibling.y - 350) > 5) {
+    const dx = sibling.x - 150;
+    const dy = sibling.y - 350;
+    const dist = Math.sqrt(dx * dx + dy * dy);
+    if (dist > 5) {
       const angle = Math.atan2(350 - sibling.y, 150 - sibling.x);
       sibling.x += Math.cos(angle) * sibling.speed;
       sibling.y += Math.sin(angle) * sibling.speed;
@@ -381,10 +389,17 @@ function draw() {
   ctx.fillText("YOU", player.x + 2, player.y + 17);
   
   // Serve prompt
-  const nearCustomer = customers.find(c => {
-    const dist = Math.hypot(player.x - c.x, player.y - c.y);
-    return c.waiting && !c.isServed && dist < 80;
-  });
+  let nearCustomer = null;
+  for (let i = 0; i < customers.length; i++) {
+    const c = customers[i];
+    const dx = player.x - c.x;
+    const dy = player.y - c.y;
+    const dist = Math.sqrt(dx * dx + dy * dy);
+    if (c.waiting && !c.isServed && dist < 80) {
+      nearCustomer = c;
+      break;
+    }
+  }
   
   if (nearCustomer) {
     ctx.fillStyle = "#2ecc71";
@@ -484,29 +499,39 @@ function calculateEarnings() {
 // GAME LOOP
 // ============================================
 function loop() {
-  movePlayer();
-  updateSibling();
-  
-  // Update customers
-  customers = customers.filter(c => c.update());
-  
-  // Remove served customers
-  customers = customers.filter(c => !c.isServed);
-  
-  draw();
-  updateUI();
-  
-  // Game time
-  gameTime += 1/60;
-  dayTime += 0.1; // Time passes
-  
-  calculateEarnings();
-  
-  requestAnimationFrame(loop);
+  try {
+    movePlayer();
+    updateSibling();
+    
+    // Update customers
+    customers = customers.filter(c => c.update());
+    
+    // Remove served customers
+    customers = customers.filter(c => !c.isServed);
+    
+    draw();
+    updateUI();
+    
+    // Game time
+    gameTime += 1/60;
+    dayTime += 0.1; // Time passes
+    
+    calculateEarnings();
+    
+    requestAnimationFrame(loop);
+  } catch (error) {
+    console.error("Game loop error:", error);
+    document.getElementById("log").textContent = "Error: " + error.message + " (Check console F12)";
+  }
 }
 
 // ============================================
 // START GAME
 // ============================================
-loop();
-updateLog("Welcome to Snack StacK! Serve customers to earn money!");
+if (!canvas || !ctx) {
+  alert("Canvas failed to load! Make sure you have a canvas element with id='game'");
+} else {
+  console.log("Game starting...");
+  loop();
+  updateLog("Welcome to Snack StacK! Serve customers to earn money!");
+}
