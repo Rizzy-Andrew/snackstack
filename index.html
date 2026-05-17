@@ -57,15 +57,15 @@
       color: #8e44ad;
     }
 
-    canvas {
-      background: linear-gradient(to bottom, #87CEEB 0%, #90EE90 70%, #8B7355 100%);
-      display: block;
-      margin: 15px auto;
-      border: 6px solid #2c3e50;
-      border-radius: 15px;
-      box-shadow: 0 10px 25px rgba(0,0,0,0.4);
-      cursor: crosshair;
-    }
+canvas {
+  display: block;
+  margin: 15px auto;
+  border: 6px solid #2c3e50;
+  border-radius: 15px;
+  box-shadow: 0 10px 25px rgba(0,0,0,0.4);
+  cursor: crosshair;
+  max-width: 100%;
+}
 
     .game-panels {
       display: grid;
@@ -289,9 +289,9 @@
     // ============================================
     const canvas = document.getElementById("game");
     const ctx = canvas.getContext("2d");
-    canvas.width = 900;
-    canvas.height = 550;
-
+canvas.width = 900;
+canvas.height = 550;
+canvas.style.width = Math.min(900, window.innerWidth - 40) + "px";
     // ============================================
     // GAME STATE
     // ============================================
