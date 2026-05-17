@@ -184,13 +184,6 @@
       50% { transform: scale(1.05); }
     }
 
-    #saveBtn, #resetBtn {
-      background: linear-gradient(135deg, #95a5a6, #7f8c8d);
-      color: white;
-      font-size: 16px;
-      padding: 12px 25px;
-    }
-
     #log {
       margin: 25px auto;
       font-size: 20px;
@@ -218,21 +211,6 @@
       font-weight: bold;
     }
 
-    .progress-bar {
-      width: 100%;
-      height: 8px;
-      background: #ecf0f1;
-      border-radius: 4px;
-      overflow: hidden;
-      margin-top: 5px;
-    }
-
-    .progress-fill {
-      height: 100%;
-      background: linear-gradient(90deg, #3498db, #2ecc71);
-      transition: width 0.3s;
-    }
-
     .achievement {
       position: fixed;
       top: 20px;
@@ -256,24 +234,6 @@
     @keyframes slideOut {
       from { transform: translateX(0); opacity: 1; }
       to { transform: translateX(400px); opacity: 0; }
-    }
-
-    ::-webkit-scrollbar {
-      width: 8px;
-    }
-
-    ::-webkit-scrollbar-track {
-      background: #ecf0f1;
-      border-radius: 4px;
-    }
-
-    ::-webkit-scrollbar-thumb {
-      background: #3498db;
-      border-radius: 4px;
-    }
-
-    ::-webkit-scrollbar-thumb:hover {
-      background: #2980b9;
     }
   </style>
 </head>
@@ -301,12 +261,6 @@
     <div class="panel">
       <h3>🥡 Inventory</h3>
       <div id="ingredients" class="panel-content"></div>
-      <div style="margin-top: 15px; text-align: center;">
-        <div class="progress-bar">
-          <div class="progress-fill" id="storage-progress" style="width: 50%"></div>
-        </div>
-        <small style="color: #7f8c8d;">Storage Used</small>
-      </div>
     </div>
     
     <div class="panel">
@@ -324,15 +278,12 @@
     <button id="buyIngredientsBtn">🛒 Buy Ingredients ($50)</button>
     <button id="upgradeBtn" style="display:none;">⭐ Open Restaurant! ($5,000)</button>
   </div>
-
-  <div class="controls">
-    <button id="saveBtn">💾 Save Game</button>
-    <button id="resetBtn">🔄 New Game</button>
-  </div>
   
   <div id="log">Welcome to Snack StacK! Start serving customers to build your empire! 🚀</div>
   
   <script>
+    console.log("🍔 Starting Snack StacK...");
+    
     // ============================================
     // CANVAS SETUP
     // ============================================
@@ -465,8 +416,6 @@
       tortilla: 0
     };
 
-    const maxStorage = 200;
-
     // ============================================
     // INPUT
     // ============================================
@@ -494,7 +443,7 @@
         this.targetX = foodTruck.x - 120;
         this.waiting = false;
         this.waitTimer = 0;
-        this.maxWaitTime = 240; // 4 seconds
+        this.maxWaitTime = 240;
         this.color = ["#9b59b6", "#e67e22", "#1abc9c", "#e91e63"][Math.floor(Math.random() * 4)];
         this.isServed = false;
         this.patience = 1.0;
@@ -560,7 +509,7 @@
       
       leave() {
         if (!this.isServed) {
-          updateLog("😞 Customer left hungry! Lost reputation!");
+          updateLog("😞 Customer left hungry!");
         }
       }
       
@@ -568,13 +517,11 @@
         ctx.fillStyle = this.color;
         ctx.fillRect(this.x, this.y, this.size, this.size);
         
-        // Face
         ctx.fillStyle = "#fff";
-        ctx.fillRect(this.x + 8, this.y + 8, 6, 6);
-        ctx.fillRect(this.x + 16, this.y + 8, 6, 6);
+        ctx.fillRect(this.x + 7, this.y + 8, 7, 7);
+        ctx.fillRect(this.x + 16, this.y + 8, 7, 7);
         
         if (this.waiting) {
-          // Order bubble
           ctx.fillStyle = "rgba(255, 255, 255, 0.95)";
           ctx.beginPath();
           ctx.arc(this.x + 15, this.y - 20, 18, 0, Math.PI * 2);
@@ -586,7 +533,6 @@
           ctx.font = "24px Arial";
           ctx.fillText(recipes[this.recipe].name.split(' ')[0], this.x - 3, this.y - 12);
           
-          // Patience bar
           const barWidth = 35;
           const barHeight = 6;
           const fillWidth = this.patience * barWidth;
@@ -741,7 +687,6 @@
     function draw() {
       ctx.clearRect(0, 0, canvas.width, canvas.height);
       
-      // Sky
       const skyGrad = ctx.createLinearGradient(0, 0, 0, canvas.height);
       skyGrad.addColorStop(0, "#87CEEB");
       skyGrad.addColorStop(0.65, "#90EE90");
@@ -749,17 +694,13 @@
       ctx.fillStyle = skyGrad;
       ctx.fillRect(0, 0, canvas.width, canvas.height);
       
-      // Ground
       ctx.fillStyle = "#8B7355";
       ctx.fillRect(0, canvas.height - 170, canvas.width, 170);
       
-      // Food Truck
       drawFoodTruck();
       
-      // Customers
       customers.forEach(c => c.draw());
       
-      // Sibling
       drawCharacter(sibling, "SIB");
       if (sibling.isServing) {
         ctx.fillStyle = "#2ecc71";
@@ -767,10 +708,8 @@
         ctx.fillText("Cooking...", sibling.x - 15, sibling.y - 15);
       }
       
-      // Player
       drawCharacter(player, "YOU");
       
-      // Serve prompt
       let nearCustomer = null;
       for (let i = 0; i < customers.length; i++) {
         const c = customers[i];
@@ -793,19 +732,15 @@
     }
 
     function drawFoodTruck() {
-      // Truck body
       ctx.fillStyle = "#e74c3c";
       ctx.fillRect(foodTruck.x, foodTruck.y, foodTruck.width, foodTruck.height);
       
-      // Shadow
       ctx.fillStyle = "rgba(0,0,0,0.2)";
       ctx.fillRect(foodTruck.x, foodTruck.y + foodTruck.height, foodTruck.width, 10);
       
-      // Stripe
       ctx.fillStyle = "#c0392b";
       ctx.fillRect(foodTruck.x, foodTruck.y + 60, foodTruck.width, 40);
       
-      // Wheels
       ctx.fillStyle = "#2c3e50";
       ctx.beginPath();
       ctx.arc(foodTruck.x + 35, foodTruck.y + 100, 15, 0, Math.PI * 2);
@@ -818,40 +753,27 @@
       ctx.arc(foodTruck.x + 115, foodTruck.y + 100, 8, 0, Math.PI * 2);
       ctx.fill();
       
-      // Window
       ctx.fillStyle = "#3498db";
       ctx.fillRect(foodTruck.x + 25, foodTruck.y + 15, 100, 40);
       
-      // Window frame
       ctx.strokeStyle = "#2c3e50";
       ctx.lineWidth = 4;
       ctx.strokeRect(foodTruck.x + 25, foodTruck.y + 15, 100, 40);
       
-      // Sign
       ctx.fillStyle = "#fff";
       ctx.font = "bold 18px Arial";
       ctx.fillText("SNACK", foodTruck.x + 45, foodTruck.y + 35);
       ctx.fillText("STACK", foodTruck.x + 45, foodTruck.y + 50);
-      
-      // Menu board
-      ctx.fillStyle = "#34495e";
-      ctx.fillRect(foodTruck.x - 50, foodTruck.y + 20, 40, 60);
-      ctx.fillStyle = "#fff";
-      ctx.font = "10px Arial";
-      ctx.fillText("MENU", foodTruck.x - 45, foodTruck.y + 35);
     }
 
     function drawCharacter(char, label) {
-      // Body
       ctx.fillStyle = char.color;
       ctx.fillRect(char.x, char.y, char.size, char.size);
       
-      // Face
       ctx.fillStyle = "#fff";
       ctx.fillRect(char.x + 7, char.y + 8, 7, 7);
       ctx.fillRect(char.x + 16, char.y + 8, 7, 7);
       
-      // Label
       ctx.fillStyle = "#fff";
       ctx.font = "bold 12px Arial";
       ctx.strokeStyle = "#000";
@@ -868,7 +790,6 @@
       document.getElementById("earnings").textContent = `📈 $/min: $${earningsPerMinute}`;
       document.getElementById("customers-count").textContent = `👥 Served: ${totalCustomersServed}`;
       
-      // Recipes
       let recipesHTML = "";
       for (let key in recipes) {
         const r = recipes[key];
@@ -888,7 +809,6 @@
       }
       document.getElementById("recipes").innerHTML = recipesHTML;
       
-      // Ingredients
       let ingHTML = "";
       const emoji = {
         chicken:"🐔", beef:"🥩", potato:"🥔", bun:"🍞", oil:"🛢️", 
@@ -896,17 +816,13 @@
         cheese:"🧀", tomato:"🍅", tortilla:"🌯"
       };
       
-      let totalItems = 0;
       for (let ing in ingredients) {
-        totalItems += ingredients[ing];
-        ingHTML += `<div class="ingredient-item">${emoji[ing] || ing}: ${ingredients[ing]}</div>`;
+        if (ingredients[ing] > 0) {
+          ingHTML += `<div class="ingredient-item">${emoji[ing] || ing}: ${ingredients[ing]}</div>`;
+        }
       }
       document.getElementById("ingredients").innerHTML = ingHTML;
       
-      const storagePercent = (totalItems / maxStorage) * 100;
-      document.getElementById("storage-progress").style.width = storagePercent + "%";
-      
-      // Team
       document.getElementById("team").innerHTML = `
         <div class="team-member" style="background: linear-gradient(135deg, #ff6b35, #ff8c55);">
           <strong>👤 ${player.name}</strong>
@@ -918,7 +834,6 @@
         </div>
       `;
       
-      // Stats
       const profit = totalEarned - (totalCustomersServed * 2);
       document.getElementById("stats").innerHTML = `
         <div class="ingredient-item">💵 Total Earned: $${Math.floor(totalEarned)}</div>
@@ -927,7 +842,6 @@
         <div class="ingredient-item">🎯 In Queue: ${customers.length}</div>
       `;
       
-      // Show upgrade button
       if (money >= 5000) {
         document.getElementById("upgradeBtn").style.display = "inline-block";
       }
@@ -952,7 +866,6 @@
         money -= recipe.unlockCost;
         recipe.unlocked = true;
         
-        // Add ingredients for new recipe
         for (let ing in recipe.ingredients) {
           if (ingredients[ing] === 0) {
             ingredients[ing] = 5;
@@ -1015,71 +928,10 @@
 
     document.getElementById("upgradeBtn").addEventListener("click", () => {
       if (money >= 5000) {
-        updateLog("🎉 Congratulations! 🎉 Restaurant phase coming soon! Keep building your empire!");
+        updateLog("🎉 Congratulations! 🎉 Restaurant phase coming soon! Keep building!");
         showAchievement("🏆 Ready for Restaurant!");
       }
     });
-
-    document.getElementById("saveBtn").addEventListener("click", saveGame);
-    document.getElementById("resetBtn").addEventListener("click", () => {
-      if (confirm("Reset game? All progress will be lost!")) {
-        localStorage.removeItem("snackStackSave");
-        location.reload();
-      }
-    });
-
-    // ============================================
-    // SAVE/LOAD SYSTEM
-    // ============================================
-    function saveGame() {
-      const saveData = {
-        money,
-        totalEarned,
-        totalCustomersServed,
-        gameTime,
-        recipes,
-        ingredients,
-        siblingServed: sibling.totalServed
-      };
-      
-      localStorage.setItem("snackStackSave", JSON.stringify(saveData));
-      updateLog("💾 Game saved successfully!");
-      showAchievement("💾 Game Saved!");
-    }
-
-    function loadGame() {
-      const saved = localStorage.getItem("snackStackSave");
-      if (saved) {
-        try {
-          const data = JSON.parse(saved);
-          money = data.money || 100;
-          totalEarned = data.totalEarned || 0;
-          totalCustomersServed = data.totalCustomersServed || 0;
-          gameTime = data.gameTime || 0;
-          
-          if (data.recipes) {
-            for (let key in data.recipes) {
-              if (recipes[key]) {
-                recipes[key].unlocked = data.recipes[key].unlocked;
-                recipes[key].timesSold = data.recipes[key].timesSold || 0;
-              }
-            }
-          }
-          
-          if (data.ingredients) {
-            ingredients = {...ingredients, ...data.ingredients};
-          }
-          
-          if (data.siblingServed) {
-            sibling.totalServed = data.siblingServed;
-          }
-          
-          updateLog("✅ Game loaded! Welcome back!");
-        } catch(e) {
-          console.error("Load error:", e);
-        }
-      }
-    }
 
     // ============================================
     // EARNINGS CALCULATION
@@ -1095,9 +947,6 @@
         lastEarningsUpdate = now;
       }
     }
-
-    // Auto-save every 30 seconds
-    setInterval(saveGame, 30000);
 
     // ============================================
     // GAME LOOP
@@ -1129,8 +978,7 @@
     if (!canvas || !ctx) {
       alert("Canvas failed to load!");
     } else {
-      loadGame();
-      console.log("🍔 Snack StacK loaded!");
+      console.log("🍔 Snack StacK ready!");
       loop();
     }
   </script>
