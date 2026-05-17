@@ -308,9 +308,10 @@ button:active {
     // ============================================
     const canvas = document.getElementById("game");
     const ctx = canvas.getContext("2d");
-canvas.width = 900;
-canvas.height = 550;
-canvas.style.width = Math.min(900, window.innerWidth - 40) + "px";
+    canvas.width = 900;
+    canvas.height = 550;
+    canvas.style.width = Math.min(900, window.innerWidth - 40) + "px";
+
     // ============================================
     // GAME STATE
     // ============================================
@@ -323,6 +324,72 @@ canvas.style.width = Math.min(900, window.innerWidth - 40) + "px";
     let earningsPerMinute = 0;
     let lastEarningsUpdate = Date.now();
     let achievementQueue = [];
+
+    // ============================================
+    // RUSH HOUR
+    // ============================================
+    let rushHour = false;
+    let rushTimer = 0;
+    let rushWarning = false;
+    let rushWarningTimer = 0;
+    let nextRushIn = 1800; // ~3 minutes at 60fps
+    let rushBonus = 0;
+
+    function updateRushHour() {
+      if (rushWarning) {
+        rushWarningTimer++;
+        if (rushWarningTimer > 180) {
+          rushWarning = false;
+          rushHour = true;
+          rushTimer = 0;
+          rushBonus = 0;
+          updateLog("🔥 RUSH HOUR! Double tips for 60 seconds!");
+        }
+        return;
+      }
+
+      if (rushHour) {
+        rushTimer++;
+        if (rushTimer > 3600) {
+          rushHour = false;
+          nextRushIn = 1800;
+          money += rushBonus;
+          showAchievement(`⭐ Rush Over! +$${rushBonus} bonus!`);
+          updateLog(`✅ Rush Hour over! Earned $${rushBonus} bonus!`);
+        }
+        return;
+      }
+
+      nextRushIn--;
+      if (nextRushIn <= 0) {
+        rushWarning = true;
+        rushWarningTimer = 0;
+        updateLog("⚠️ RUSH HOUR INCOMING! Get ready!");
+      }
+    }
+
+    function drawRushHour() {
+      if (rushWarning) {
+        ctx.fillStyle = `rgba(255, 200, 0, ${0.2 + 0.15 * Math.sin(Date.now() / 100)})`;
+        ctx.fillRect(0, 0, canvas.width, canvas.height);
+        ctx.fillStyle = "#fff";
+        ctx.font = "bold 28px Arial";
+        ctx.textAlign = "center";
+        ctx.fillText("⚠️ RUSH HOUR INCOMING! ⚠️", canvas.width / 2, 50);
+        ctx.textAlign = "left";
+      }
+
+      if (rushHour) {
+        ctx.fillStyle = "rgba(255, 50, 0, 0.07)";
+        ctx.fillRect(0, 0, canvas.width, canvas.height);
+        ctx.fillStyle = "#ff4444";
+        ctx.font = "bold 18px Arial";
+        ctx.textAlign = "center";
+        const secondsLeft = Math.ceil((3600 - rushTimer) / 60);
+        ctx.fillText(`🔥 RUSH HOUR - ${secondsLeft}s left | Bonus: $${rushBonus}`, canvas.width / 2, 28);
+        ctx.textAlign = "left";
+      }
+    }
 
     // ============================================
     // PLAYER
@@ -441,7 +508,6 @@ canvas.style.width = Math.min(900, window.innerWidth - 40) + "px";
     const keys = {};
     document.addEventListener("keydown", (e) => {
       keys[e.key.toLowerCase()] = true;
-      
       if (e.key.toLowerCase() === 'e') {
         tryServeCustomer();
       }
@@ -462,7 +528,7 @@ canvas.style.width = Math.min(900, window.innerWidth - 40) + "px";
         this.targetX = foodTruck.x - 120;
         this.waiting = false;
         this.waitTimer = 0;
-        this.maxWaitTime = 240;
+        this.maxWaitTime = rushHour ? 150 : 240;
         this.color = ["#9b59b6", "#e67e22", "#1abc9c", "#e91e63"][Math.floor(Math.random() * 4)];
         this.isServed = false;
         this.patience = 1.0;
@@ -507,7 +573,8 @@ canvas.style.width = Math.min(900, window.innerWidth - 40) + "px";
           ingredients[ing] -= recipe.ingredients[ing];
         }
         
-        const tip = Math.floor(recipe.price * this.patience * 0.3);
+        const tipMultiplier = rushHour ? 0.6 : 0.3;
+        const tip = Math.floor(recipe.price * this.patience * tipMultiplier);
         const total = recipe.price + tip;
         
         money += total;
@@ -515,9 +582,13 @@ canvas.style.width = Math.min(900, window.innerWidth - 40) + "px";
         totalCustomersServed++;
         recipe.timesSold++;
         this.isServed = true;
+
+        if (rushHour) {
+          rushBonus += tip;
+        }
         
         if (tip > 0) {
-          updateLog(`✅ Served ${recipe.name} for $${recipe.price} + $${tip} tip!`);
+          updateLog(`✅ Served ${recipe.name} for $${recipe.price} + $${tip} tip!${rushHour ? ' 🔥' : ''}`);
         } else {
           updateLog(`✅ Served ${recipe.name} for $${recipe.price}!`);
         }
@@ -597,11 +668,14 @@ canvas.style.width = Math.min(900, window.innerWidth - 40) + "px";
       customers.push(new Customer(selectedRecipe));
     }
 
+    // Single interval that checks rush hour state for spawn rate
     setInterval(() => {
-      if (Math.random() < 0.35 && customers.length < 6) {
+      const spawnChance = rushHour ? 0.75 : 0.35;
+      const maxCustomers = rushHour ? 8 : 6;
+      if (Math.random() < spawnChance && customers.length < maxCustomers) {
         spawnCustomer();
       }
-    }, 2500);
+    }, 1500);
 
     // ============================================
     // SERVING MECHANICS
@@ -748,6 +822,9 @@ canvas.style.width = Math.min(900, window.innerWidth - 40) + "px";
         ctx.font = "bold 16px Arial";
         ctx.fillText("Press E", player.x - 20, player.y - 12);
       }
+
+      // Draw rush hour overlay on top of everything
+      drawRushHour();
     }
 
     function drawFoodTruck() {
@@ -859,6 +936,7 @@ canvas.style.width = Math.min(900, window.innerWidth - 40) + "px";
         <div class="ingredient-item">📈 Profit: $${Math.floor(profit)}</div>
         <div class="ingredient-item">⏱️ Playing: ${formatTime(gameTime)}</div>
         <div class="ingredient-item">🎯 In Queue: ${customers.length}</div>
+        <div class="ingredient-item">🔥 Rush: ${rushHour ? 'ACTIVE!' : rushWarning ? 'INCOMING!' : formatTime(nextRushIn / 60)}</div>
       `;
       
       if (money >= 5000) {
@@ -974,6 +1052,7 @@ canvas.style.width = Math.min(900, window.innerWidth - 40) + "px";
       try {
         movePlayer();
         updateSibling();
+        updateRushHour();
         
         customers = customers.filter(c => c.update());
         customers = customers.filter(c => !c.isServed);
