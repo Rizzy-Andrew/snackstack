@@ -43,7 +43,7 @@ button:hover{transform:translate(3px,3px);box-shadow:3px 3px 0px #000;} button:a
     <div class="stat-item" id="customers-count">👥 Served: 0</div>
   </div>
   <canvas id="game"></canvas>
-  <div class="controls-hint">WASD Move &nbsp;|&nbsp; E Interact / Serve &nbsp;|&nbsp; Q Drop food &nbsp;|&nbsp; Walk to station + E to cook &nbsp;|&nbsp; Pick up when done, bring to SERVE counter!</div>
+  <div class="controls-hint">WASD Move &nbsp;|&nbsp; E Interact/Cook/Serve &nbsp;|&nbsp; Q Drop food &nbsp;|&nbsp; Cook food at stations then bring to SERVE counter &nbsp;|&nbsp; Press E anywhere to serve!</div>
   <div class="game-panels">
     <div class="panel"><h3>📋 Recipes</h3><div id="recipes" class="panel-content"></div></div>
     <div class="panel"><h3>🥡 Inventory</h3><div id="ingredients" class="panel-content"></div></div>
@@ -57,9 +57,6 @@ button:hover{transform:translate(3px,3px);box-shadow:3px 3px 0px #000;} button:a
   <div id="log">Walk to a station and press E to start cooking! 🍳</div>
 
 <script>
-  
-  alert("NEW UPDATE!!!")
-  
   const canvas = document.getElementById("game");
   const ctx = canvas.getContext("2d");
   canvas.width = 900; canvas.height = 550;
@@ -121,275 +118,292 @@ button:hover{transform:translate(3px,3px);box-shadow:3px 3px 0px #000;} button:a
   function distToStation(char,s){const c=stationCenter(s);return Math.hypot(char.x+char.size/2-c.x,char.y+char.size/2-c.y);}
 
   // ============================================
-  // PLAYER
+  // PLAYER & SIBLING
   // ============================================
-  const player = {x:300,y:350,size:30,speed:4,color:"#ff6b35",name:"You",holding:null};
+  const player  = {x:300,y:350,size:30,speed:4,color:"#ff6b35",holding:null};
+  const sibling = {x:400,y:350,size:30,speed:4,color:"#3498db",holding:null,aiTimer:0,totalServed:0};
 
   // ============================================
-  // SIBLING — faster speed, faster AI tick
+  // SERVE — completely standalone, called on E press
+  // Finds any waiting customer whose recipe matches
+  // whatever is on the counter. No distance check.
   // ============================================
-  const sibling = {x:400,y:350,size:30,speed:4,color:"#3498db",name:"Sibling",holding:null,aiTimer:0,totalServed:0};
+  function tryServe() {
+    const counter = stations.find(s => s.id === "counter");
+    if (!counter.food || counter.food.burned) {
+      updateLog("❌ No food on the SERVE counter!");
+      return false;
+    }
+    const match = customers.find(c => c.waiting && !c.isServed && c.recipe === counter.food.recipeKey);
+    if (!match) {
+      updateLog("❌ No customer waiting for " + recipes[counter.food.recipeKey].name + "!");
+      return false;
+    }
+    const recipe = recipes[match.recipe];
+    const tip = Math.floor(recipe.price * match.patience * (rushHour ? 0.6 : 0.3));
+    const total = recipe.price + tip;
+    money += total; totalEarned += total; totalCustomersServed++;
+    recipe.timesSold++; match.isServed = true;
+    counter.food = null; counter.state = "idle";
+    if (rushHour) rushBonus += tip;
+    updateLog(`✅ Served ${recipe.name} $${recipe.price}${tip > 0 ? ` + $${tip} tip` : ""}!${rushHour ? " 🔥" : ""}`);
+    checkAchievements();
+    setTimeout(() => { customers = customers.filter(c => c.id !== match.id); }, 300);
+    return true;
+  }
 
   // ============================================
   // INPUT
   // ============================================
-  const keys={};
-  document.addEventListener("keydown",e=>{
-    keys[e.key.toLowerCase()]=true;
-    if(e.key.toLowerCase()==="e") handleInteract(player);
-    if(e.key.toLowerCase()==="q") handleDrop(player);
+  const keys = {};
+  document.addEventListener("keydown", e => {
+    keys[e.key.toLowerCase()] = true;
+    if (e.key.toLowerCase() === "e") handleE();
+    if (e.key.toLowerCase() === "q") { player.holding = null; updateLog("🗑️ Dropped food."); }
   });
-  document.addEventListener("keyup",e=>keys[e.key.toLowerCase()]=false);
+  document.addEventListener("keyup", e => keys[e.key.toLowerCase()] = false);
 
-function handleInteract(char){
-  const counter=stations.find(s=>s.id==="counter");
+  function handleE() {
+    // First always try to serve — if counter has food matching a customer, just do it
+    if (tryServe()) return;
 
-  // If counter has food, try to match ANY waiting customer — no distance check
-  if(counter.food&&!counter.food.burned){
-    for(let c of customers){
-      if(c.waiting&&!c.isServed&&counter.food.recipeKey===c.recipe){
-        serveCustomer(c,counter);
-        return;
+    // Otherwise interact with nearest station
+    let best = null, bestD = 80;
+    for (let s of stations) { const d = distToStation(player, s); if (d < bestD) { best = s; bestD = d; } }
+    if (!best) { updateLog("❌ Get closer to a station!"); return; }
+
+    interactWithStation(player, best);
+  }
+
+  function interactWithStation(char, s) {
+    const counter = stations.find(st => st.id === "counter");
+
+    if (s.id === "counter") {
+      // Place finished food on counter, or pick up
+      if (char.holding) {
+        const pipeline = recipePipeline[char.holding.recipeKey];
+        if (char.holding.stage === pipeline.length - 1) {
+          if (!counter.food) {
+            counter.food = { ...char.holding }; counter.state = "ready"; char.holding = null;
+            updateLog("🍽️ Food on counter! Press E to serve a customer!");
+          } else { updateLog("❌ Counter already has food!"); }
+        } else { updateLog("❌ Food isn't ready yet — keep cooking!"); }
+      } else if (counter.food) {
+        char.holding = { ...counter.food }; counter.food = null; counter.state = "idle";
+        updateLog("📦 Picked up food from counter.");
+      } else { updateLog("❌ Counter is empty."); }
+      return;
+    }
+
+    if (s.state === "idle" && !s.food) {
+      if (char.holding) {
+        // Place held food here for next cooking step
+        const pipeline = recipePipeline[char.holding.recipeKey];
+        const nextIdx = char.holding.stage + 1;
+        if (nextIdx < pipeline.length && pipeline[nextIdx] === s.id) {
+          s.food = { ...char.holding }; s.food.stage = nextIdx; s.cookTimer = 0; s.state = "cooking";
+          char.holding = null;
+          updateLog(`🍳 Cooking step ${nextIdx + 1} on ${s.label}...`);
+        } else {
+          const needed = pipeline[nextIdx] || "SERVE counter";
+          updateLog(`❌ Wrong station! Take to ${needed.toUpperCase()} next.`);
+        }
+      } else {
+        // Start a new dish
+        const cands = Object.keys(recipes).filter(k => recipes[k].unlocked && recipePipeline[k][0] === s.id && hasIngredients(k));
+        if (!cands.length) { updateLog(`❌ No recipes for ${s.label} or missing ingredients!`); return; }
+        const rk = cands[0]; useIngredients(rk);
+        s.food = { recipeKey: rk, stage: 0, burned: false }; s.cookTimer = 0; s.state = "cooking";
+        updateLog(`🍳 Started ${recipes[rk].name}! Don't let it burn!`);
       }
+    } else if (s.state === "ready") {
+      if (!char.holding) {
+        char.holding = { ...s.food }; s.food = null; s.state = "idle"; s.cookTimer = 0;
+        const pipeline = recipePipeline[char.holding.recipeKey];
+        const next = pipeline[char.holding.stage + 1];
+        updateLog(next ? `➡️ Next: take to ${next.toUpperCase()}` : `✅ Done! Bring to SERVE counter then press E.`);
+      } else { updateLog("❌ Hands full! Press Q to drop."); }
+    } else if (s.state === "burned") {
+      s.food = null; s.state = "idle"; s.cookTimer = 0; updateLog("🗑️ Cleared burned food.");
+    } else if (s.state === "cooking") {
+      updateLog(`⏳ ${s.label} cooking... ${Math.min(Math.floor(s.cookTimer / s.cookTime * 100), 100)}%`);
     }
-  }
-
-  // Find nearest station
-  let best=null,bestD=80;
-  for(let s of stations){const d=distToStation(char,s);if(d<bestD){best=s;bestD=d;}}
-  if(!best)return;
-
-  if(best.id==="counter"){
-    if(char.holding&&!counter.food){
-      const pipeline=recipePipeline[char.holding.recipeKey];
-      if(char.holding.stage===pipeline.length-1){
-        counter.food={...char.holding};counter.state="ready";char.holding=null;
-        updateLog("🍽️ Food on counter! Press E to serve!");
-      }else{updateLog("❌ Not ready to serve yet!");}
-    }else if(counter.food&&!char.holding){
-      char.holding={...counter.food};counter.food=null;counter.state="idle";
-      updateLog("📦 Picked up from counter.");
-    }
-    return;
-  }
-
-  if(best.state==="idle"&&!best.food){
-    if(char.holding){
-      const pipeline=recipePipeline[char.holding.recipeKey];
-      const nextIdx=char.holding.stage+1;
-      if(nextIdx<pipeline.length&&pipeline[nextIdx]===best.id){
-        best.food={...char.holding};best.food.stage=nextIdx;best.cookTimer=0;best.state="cooking";
-        char.holding=null;updateLog(`🍳 Cooking step ${nextIdx+1} on ${best.label}...`);
-      }else{
-        const needed=pipeline[nextIdx]||"SERVE";
-        updateLog(`❌ Wrong station! Take to ${needed.toUpperCase()} next.`);
-      }
-    }else{
-      const candidates=Object.keys(recipes).filter(k=>recipes[k].unlocked&&recipePipeline[k][0]===best.id&&hasIngredients(k));
-      if(!candidates.length){updateLog(`❌ No recipes for ${best.label} or missing ingredients!`);return;}
-      const rk=candidates[0];useIngredients(rk);
-      best.food={recipeKey:rk,stage:0,burned:false};best.cookTimer=0;best.state="cooking";
-      updateLog(`🍳 Started ${recipes[rk].name}! Don't let it burn!`);
-    }
-  }else if(best.state==="ready"){
-    if(!char.holding){
-      char.holding={...best.food};best.food=null;best.state="idle";best.cookTimer=0;
-      const pipeline=recipePipeline[char.holding.recipeKey];
-      const next=pipeline[char.holding.stage+1];
-      updateLog(next?`➡️ Next: take to ${next.toUpperCase()}`:`✅ Done! Bring to SERVE counter.`);
-    }else{updateLog("❌ Hands full! Press Q to drop.");}
-  }else if(best.state==="burned"){
-    best.food=null;best.state="idle";best.cookTimer=0;updateLog("🗑️ Cleared burned food.");
-  }else if(best.state==="cooking"){
-    updateLog(`⏳ ${best.label} cooking... ${Math.min(Math.floor(best.cookTimer/best.cookTime*100),100)}%`);
-  }
-}
-  
-  function handleDrop(char){
-    if(!char.holding)return;
-    char.holding=null;updateLog("🗑️ Dropped food.");
-  }
-
-  function serveCustomer(customer,counter){
-    const recipe=recipes[customer.recipe];
-    const tip=Math.floor(recipe.price*customer.patience*(rushHour?0.6:0.3));
-    const total=recipe.price+tip;
-    money+=total;totalEarned+=total;totalCustomersServed++;recipe.timesSold++;
-    customer.isServed=true;counter.food=null;counter.state="idle";
-    if(rushHour)rushBonus+=tip;
-    updateLog(`✅ Served ${recipe.name} $${recipe.price}${tip>0?` + $${tip} tip`:""}!${rushHour?" 🔥":""}`);
-    checkAchievements();
-    setTimeout(()=>{customers=customers.filter(c=>c.id!==customer.id);},300);
   }
 
   // ============================================
   // UPDATE STATIONS
   // ============================================
-  function updateStations(){
-    for(let s of stations){
-      if(s.state!=="cooking")continue;
+  function updateStations() {
+    for (let s of stations) {
+      if (s.state !== "cooking") continue;
       s.cookTimer++;
-      if(s.cookTimer>=s.cookTime+s.burnTime){
-        s.state="burned";if(s.food)s.food.burned=true;
-        updateLog(`🔥 ${recipes[s.food.recipeKey].name} BURNED on ${s.label}! Press E to clear.`);
-      }else if(s.cookTimer>=s.cookTime&&s.state==="cooking"){
-        s.state="ready";
+      if (s.cookTimer >= s.cookTime + s.burnTime) {
+        s.state = "burned"; if (s.food) s.food.burned = true;
+        updateLog(`🔥 ${recipes[s.food.recipeKey].name} BURNED on ${s.label}! Press E near it to clear.`);
+      } else if (s.cookTimer >= s.cookTime) {
+        s.state = "ready";
       }
     }
   }
 
   // ============================================
-  // SIBLING AI — faster tick (20 frames), faster speed (4)
+  // SIBLING AI
   // ============================================
-  function updateSiblingAI(){
+  function updateSiblingAI() {
     sibling.aiTimer++;
-    if(sibling.aiTimer<20)return;
-    sibling.aiTimer=0;
+    if (sibling.aiTimer < 20) return;
+    sibling.aiTimer = 0;
 
-    const counter=stations.find(s=>s.id==="counter");
+    const counter = stations.find(s => s.id === "counter");
 
-    if(sibling.holding){
-      const pipeline=recipePipeline[sibling.holding.recipeKey];
-      const nextIdx=sibling.holding.stage+1;
-      if(nextIdx>=pipeline.length){
-        if(!counter.food){
-          if(distToStation(sibling,counter)<65){counter.food={...sibling.holding};counter.state="ready";sibling.holding=null;}
-          else moveTo(sibling,stationCenter(counter));
+    // If holding food, go to next station or counter
+    if (sibling.holding) {
+      const pipeline = recipePipeline[sibling.holding.recipeKey];
+      const nextIdx = sibling.holding.stage + 1;
+      if (nextIdx >= pipeline.length) {
+        if (!counter.food) {
+          if (distToStation(sibling, counter) < 65) {
+            counter.food = { ...sibling.holding }; counter.state = "ready"; sibling.holding = null;
+            // immediately serve if customer waiting
+            const match = customers.find(c => c.waiting && !c.isServed && c.recipe === counter.food?.recipeKey);
+            if (match) { tryServe(); sibling.totalServed++; }
+          } else moveTo(sibling, stationCenter(counter));
         }
-      }else{
-        const ns=stations.find(s=>s.id===pipeline[nextIdx]);
-        if(ns&&ns.state==="idle"&&!ns.food){
-          if(distToStation(sibling,ns)<65){ns.food={...sibling.holding};ns.food.stage=nextIdx;ns.cookTimer=0;ns.state="cooking";sibling.holding=null;}
-          else moveTo(sibling,stationCenter(ns));
+      } else {
+        const ns = stations.find(s => s.id === pipeline[nextIdx]);
+        if (ns && ns.state === "idle" && !ns.food) {
+          if (distToStation(sibling, ns) < 65) {
+            ns.food = { ...sibling.holding }; ns.food.stage = nextIdx; ns.cookTimer = 0; ns.state = "cooking"; sibling.holding = null;
+          } else moveTo(sibling, stationCenter(ns));
         }
       }
       return;
     }
 
-    // Pick up ready food
-    for(let s of stations){
-      if(s.state==="ready"&&s.id!=="counter"){
-        if(distToStation(sibling,s)<65){sibling.holding={...s.food};s.food=null;s.state="idle";s.cookTimer=0;}
-        else moveTo(sibling,stationCenter(s));
+    // Pick up ready food from a non-counter station
+    for (let s of stations) {
+      if (s.state === "ready" && s.id !== "counter") {
+        if (distToStation(sibling, s) < 65) { sibling.holding = { ...s.food }; s.food = null; s.state = "idle"; s.cookTimer = 0; }
+        else moveTo(sibling, stationCenter(s));
         return;
       }
     }
 
-    // Serve customer if counter has matching food
-    if(counter.food&&!counter.food.burned){
-      for(let c of customers){
-        if(c.waiting&&!c.isServed&&counter.food.recipeKey===c.recipe){
-          if(Math.hypot(sibling.x-c.x,sibling.y-c.y)<150){serveCustomer(c,counter);sibling.totalServed++;}
-          else moveTo(sibling,{x:c.x,y:c.y});
-          return;
-        }
+    // Serve customer if counter has food
+    if (counter.food && !counter.food.burned) {
+      const match = customers.find(c => c.waiting && !c.isServed && c.recipe === counter.food.recipeKey);
+      if (match) {
+        if (Math.hypot(sibling.x - match.x, sibling.y - match.y) < 150) {
+          tryServe(); sibling.totalServed++;
+        } else moveTo(sibling, { x: match.x, y: match.y });
+        return;
       }
     }
 
     // Clear burned food
-    for(let s of stations){
-      if(s.state==="burned"){
-        if(distToStation(sibling,s)<65){s.food=null;s.state="idle";s.cookTimer=0;}
-        else moveTo(sibling,stationCenter(s));
+    for (let s of stations) {
+      if (s.state === "burned") {
+        if (distToStation(sibling, s) < 65) { s.food = null; s.state = "idle"; s.cookTimer = 0; }
+        else moveTo(sibling, stationCenter(s));
         return;
       }
     }
 
     // Start cooking at idle station
-    for(let s of stations){
-      if(s.state==="idle"&&!s.food&&s.id!=="counter"){
-        const cands=Object.keys(recipes).filter(k=>recipes[k].unlocked&&recipePipeline[k][0]===s.id&&hasIngredients(k));
-        if(cands.length){
-          if(distToStation(sibling,s)<65){useIngredients(cands[0]);s.food={recipeKey:cands[0],stage:0,burned:false};s.cookTimer=0;s.state="cooking";}
-          else moveTo(sibling,stationCenter(s));
+    for (let s of stations) {
+      if (s.state === "idle" && !s.food && s.id !== "counter") {
+        const cands = Object.keys(recipes).filter(k => recipes[k].unlocked && recipePipeline[k][0] === s.id && hasIngredients(k));
+        if (cands.length) {
+          if (distToStation(sibling, s) < 65) {
+            useIngredients(cands[0]); s.food = { recipeKey: cands[0], stage: 0, burned: false }; s.cookTimer = 0; s.state = "cooking";
+          } else moveTo(sibling, stationCenter(s));
           return;
         }
       }
     }
 
-    moveTo(sibling,{x:500,y:350});
+    moveTo(sibling, { x: 500, y: 350 });
   }
 
-  function moveTo(char,pos){
-    const angle=Math.atan2(pos.y-char.y,pos.x-char.x);
-    char.x+=Math.cos(angle)*char.speed;
-    char.y+=Math.sin(angle)*char.speed;
+  function moveTo(char, pos) {
+    const angle = Math.atan2(pos.y - char.y, pos.x - char.x);
+    char.x += Math.cos(angle) * char.speed;
+    char.y += Math.sin(angle) * char.speed;
   }
 
   // ============================================
   // CUSTOMERS
   // ============================================
-  class Customer{
-    constructor(recipe){
-      this.id=nextCustomerId++;this.recipe=recipe;
-      this.x=-50;this.y=180;
-      this.size=30;this.speed=1+Math.random()*0.5;
-      const waiting=customers.filter(c=>c.waiting).length;
-      this.targetX=Math.min(760-waiting*38,760);
-      this.waiting=false;this.waitTimer=0;
-      this.maxWaitTime=rushHour?200:320;
-      this.color=["#9b59b6","#e67e22","#1abc9c","#e91e63"][Math.floor(Math.random()*4)];
-      this.isServed=false;this.patience=1.0;
+  class Customer {
+    constructor(recipe) {
+      this.id = nextCustomerId++; this.recipe = recipe;
+      this.x = -50; this.y = 185;
+      this.size = 30; this.speed = 1 + Math.random() * 0.5;
+      const wc = customers.filter(c => c.waiting).length;
+      this.targetX = Math.max(300, 760 - wc * 42);
+      this.waiting = false; this.waitTimer = 0;
+      this.maxWaitTime = rushHour ? 200 : 360;
+      this.color = ["#9b59b6","#e67e22","#1abc9c","#e91e63"][Math.floor(Math.random()*4)];
+      this.isServed = false; this.patience = 1.0;
     }
-    update(){
-      if(!this.waiting){if(this.x<this.targetX)this.x+=this.speed;else this.waiting=true;}
-      else{
-        this.waitTimer++;this.patience=1-(this.waitTimer/this.maxWaitTime);
-        if(this.waitTimer>this.maxWaitTime&&!this.isServed){this.leave();return false;}
+    update() {
+      if (!this.waiting) { if (this.x < this.targetX) this.x += this.speed; else this.waiting = true; }
+      else {
+        this.waitTimer++; this.patience = 1 - (this.waitTimer / this.maxWaitTime);
+        if (this.waitTimer > this.maxWaitTime && !this.isServed) { this.leave(); return false; }
       }
       return true;
     }
-    leave(){if(!this.isServed)updateLog("😞 Customer left hungry!");}
-    draw(){
-      ctx.fillStyle=this.color;ctx.fillRect(this.x,this.y,this.size,this.size);
-      ctx.fillStyle="#fff";ctx.fillRect(this.x+7,this.y+8,7,7);ctx.fillRect(this.x+16,this.y+8,7,7);
-      if(this.waiting){
-        ctx.fillStyle="rgba(255,255,255,0.95)";ctx.beginPath();ctx.arc(this.x+15,this.y-22,18,0,Math.PI*2);ctx.fill();
-        ctx.strokeStyle="#333";ctx.lineWidth=2;ctx.stroke();
-        ctx.font="18px Arial";ctx.fillStyle="#333";
-        ctx.fillText(recipes[this.recipe].name.split(" ")[0],this.x-1,this.y-15);
+    leave() { if (!this.isServed) updateLog("😞 Customer left hungry!"); }
+    draw() {
+      ctx.fillStyle = this.color; ctx.fillRect(this.x, this.y, this.size, this.size);
+      ctx.fillStyle = "#fff"; ctx.fillRect(this.x+7,this.y+8,7,7); ctx.fillRect(this.x+16,this.y+8,7,7);
+      if (this.waiting) {
+        ctx.fillStyle = "rgba(255,255,255,0.95)"; ctx.beginPath(); ctx.arc(this.x+15,this.y-22,18,0,Math.PI*2); ctx.fill();
+        ctx.strokeStyle = "#333"; ctx.lineWidth = 2; ctx.stroke();
+        ctx.font = "18px Arial"; ctx.fillStyle = "#333";
+        ctx.fillText(recipes[this.recipe].name.split(" ")[0], this.x-1, this.y-15);
         const bw=35,bh=6,fw=this.patience*bw;
-        const g=ctx.createLinearGradient(this.x,0,this.x+bw,0);
-        if(this.patience>0.6){g.addColorStop(0,"#2ecc71");g.addColorStop(1,"#27ae60");}
+        const g = ctx.createLinearGradient(this.x,0,this.x+bw,0);
+        if (this.patience>0.6){g.addColorStop(0,"#2ecc71");g.addColorStop(1,"#27ae60");}
         else if(this.patience>0.3){g.addColorStop(0,"#f39c12");g.addColorStop(1,"#e67e22");}
         else{g.addColorStop(0,"#e74c3c");g.addColorStop(1,"#c0392b");}
-        ctx.fillStyle=g;ctx.fillRect(this.x,this.y-38,fw,bh);
-        ctx.strokeStyle="#2c3e50";ctx.lineWidth=2;ctx.strokeRect(this.x,this.y-38,bw,bh);
+        ctx.fillStyle=g; ctx.fillRect(this.x,this.y-38,fw,bh);
+        ctx.strokeStyle="#2c3e50"; ctx.lineWidth=2; ctx.strokeRect(this.x,this.y-38,bw,bh);
 
-        const counter=stations.find(s=>s.id==="counter");
-        const canServe=counter.food&&counter.food.recipeKey===this.recipe&&!counter.food.burned;
-        if(Math.hypot(player.x-this.x,player.y-this.y)<200){
-          ctx.fillStyle=canServe?"rgba(46,204,113,0.9)":"rgba(180,30,30,0.8)";
-          ctx.fillRect(this.x-10,this.y-58,canServe?90:130,16);
-          ctx.fillStyle="#fff";ctx.font="bold 9px Arial";
-          ctx.fillText(canServe?"E to Serve!":"Need: "+recipes[this.recipe].name.split(" ")[0],this.x-6,this.y-46);
-        }
+        // Always show what they want
+        const counter = stations.find(s=>s.id==="counter");
+        const readyForThem = counter.food && counter.food.recipeKey===this.recipe && !counter.food.burned;
+        ctx.fillStyle = readyForThem ? "rgba(46,204,113,0.95)" : "rgba(40,40,40,0.8)";
+        ctx.fillRect(this.x-5, this.y-58, readyForThem?100:130, 16);
+        ctx.fillStyle="#fff"; ctx.font="bold 9px Arial";
+        ctx.fillText(readyForThem ? "✅ Press E!" : "Wants: "+recipes[this.recipe].name.split(" ")[0], this.x, this.y-46);
       }
     }
   }
 
-  function spawnCustomer(){
-    const avail=Object.keys(recipes).filter(r=>recipes[r].unlocked);
-    if(!avail.length)return;
-    const weights=avail.map(r=>recipes[r].price),total=weights.reduce((a,b)=>a+b,0);
-    let rand=Math.random()*total,sel=avail[0];
-    for(let i=0;i<avail.length;i++){rand-=weights[i];if(rand<=0){sel=avail[i];break;}}
+  function spawnCustomer() {
+    const avail = Object.keys(recipes).filter(r=>recipes[r].unlocked);
+    if (!avail.length) return;
+    const weights = avail.map(r=>recipes[r].price), total = weights.reduce((a,b)=>a+b,0);
+    let rand = Math.random()*total, sel = avail[0];
+    for (let i=0;i<avail.length;i++){rand-=weights[i];if(rand<=0){sel=avail[i];break;}}
     customers.push(new Customer(sel));
   }
 
   setInterval(()=>{
-    const chance=rushHour?0.75:0.35,max=rushHour?8:5;
-    if(Math.random()<chance&&customers.length<max)spawnCustomer();
+    const chance=rushHour?0.75:0.35, max=rushHour?8:5;
+    if(Math.random()<chance&&customers.length<max) spawnCustomer();
   },1500);
 
   // ============================================
   // PLAYER MOVEMENT
   // ============================================
-  function movePlayer(){
-    if(keys["w"]||keys["arrowup"])   player.y-=player.speed;
-    if(keys["s"]||keys["arrowdown"]) player.y+=player.speed;
-    if(keys["a"]||keys["arrowleft"]) player.x-=player.speed;
-    if(keys["d"]||keys["arrowright"])player.x+=player.speed;
+  function movePlayer() {
+    if(keys["w"]||keys["arrowup"])    player.y-=player.speed;
+    if(keys["s"]||keys["arrowdown"])  player.y+=player.speed;
+    if(keys["a"]||keys["arrowleft"])  player.x-=player.speed;
+    if(keys["d"]||keys["arrowright"]) player.x+=player.speed;
     player.x=Math.max(0,Math.min(canvas.width-player.size,player.x));
     player.y=Math.max(0,Math.min(canvas.height-player.size,player.y));
   }
@@ -397,14 +411,15 @@ function handleInteract(char){
   // ============================================
   // DRAW
   // ============================================
-  function draw(){
+  function draw() {
     ctx.clearRect(0,0,canvas.width,canvas.height);
-    ctx.fillStyle="#d4a96a";ctx.fillRect(0,0,canvas.width,canvas.height);
-    for(let x=0;x<canvas.width;x+=48)for(let y=0;y<canvas.height;y+=48){
-      ctx.strokeStyle="rgba(0,0,0,0.08)";ctx.lineWidth=1;ctx.strokeRect(x,y,48,48);
+    ctx.fillStyle="#d4a96a"; ctx.fillRect(0,0,canvas.width,canvas.height);
+    for(let x=0;x<canvas.width;x+=48) for(let y=0;y<canvas.height;y+=48){
+      ctx.strokeStyle="rgba(0,0,0,0.08)"; ctx.lineWidth=1; ctx.strokeRect(x,y,48,48);
     }
-    ctx.fillStyle="#5a3510";ctx.fillRect(0,0,canvas.width,145);
-    ctx.fillStyle="#7a4a20";ctx.fillRect(0,130,canvas.width,18);
+    ctx.fillStyle="#5a3510"; ctx.fillRect(0,0,canvas.width,148);
+    ctx.fillStyle="#7a4a20"; ctx.fillRect(0,133,canvas.width,18);
+
     drawStations();
     customers.forEach(c=>c.draw());
     drawCharacter(sibling,"SIB",sibling.holding);
@@ -413,59 +428,71 @@ function handleInteract(char){
     drawRushHour();
   }
 
-  function drawStations(){
-    for(let s of stations){
-      let col=s.color;
-      if(s.state==="burned")col="#1a1a1a";
-      else if(s.state==="ready")col="#1e8449";
-      ctx.fillStyle="rgba(0,0,0,0.3)";ctx.fillRect(s.x+4,s.y+4,SS,SS);
-      ctx.fillStyle=col;ctx.fillRect(s.x,s.y,SS,SS);
-      ctx.strokeStyle="#000";ctx.lineWidth=3;ctx.strokeRect(s.x,s.y,SS,SS);
-      ctx.font="22px Arial";ctx.textAlign="center";
-      ctx.fillText(s.emoji,s.x+SS/2,s.y+28);
-      ctx.fillStyle="#fff";ctx.font="bold 7px Arial";
-      ctx.fillText(s.label,s.x+SS/2,s.y+SS-5);
+  function drawStations() {
+    for (let s of stations) {
+      let col = s.color;
+      if(s.state==="burned") col="#1a1a1a";
+      else if(s.state==="ready") col="#1e8449";
+      ctx.fillStyle="rgba(0,0,0,0.3)"; ctx.fillRect(s.x+4,s.y+4,SS,SS);
+      ctx.fillStyle=col; ctx.fillRect(s.x,s.y,SS,SS);
+      ctx.strokeStyle="#000"; ctx.lineWidth=3; ctx.strokeRect(s.x,s.y,SS,SS);
+      ctx.font="22px Arial"; ctx.textAlign="center"; ctx.fillText(s.emoji,s.x+SS/2,s.y+28);
+      ctx.fillStyle="#fff"; ctx.font="bold 7px Arial"; ctx.fillText(s.label,s.x+SS/2,s.y+SS-5);
       ctx.textAlign="left";
 
       if(s.state==="cooking"&&s.cookTime>0){
         const prog=Math.min(s.cookTimer/s.cookTime,1);
         const burnProg=s.cookTimer>s.cookTime?(s.cookTimer-s.cookTime)/s.burnTime:0;
         const bw=SS-4,bh=7;
-        ctx.fillStyle="#333";ctx.fillRect(s.x+2,s.y+SS+3,bw,bh);
+        ctx.fillStyle="#333"; ctx.fillRect(s.x+2,s.y+SS+3,bw,bh);
         ctx.fillStyle=burnProg>0?"#e74c3c":"#2ecc71";
         ctx.fillRect(s.x+2,s.y+SS+3,bw*(burnProg>0?1-burnProg:prog),bh);
-        ctx.strokeStyle="#000";ctx.lineWidth=1;ctx.strokeRect(s.x+2,s.y+SS+3,bw,bh);
+        ctx.strokeStyle="#000"; ctx.lineWidth=1; ctx.strokeRect(s.x+2,s.y+SS+3,bw,bh);
       }
-
       if(s.state==="ready"){ctx.font="16px Arial";ctx.textAlign="center";ctx.fillText("✅",s.x+SS/2,s.y-4);ctx.textAlign="left";}
       if(s.state==="burned"){ctx.font="16px Arial";ctx.textAlign="center";ctx.fillText("💀",s.x+SS/2,s.y-4);ctx.textAlign="left";}
       if(s.food){ctx.font="16px Arial";ctx.textAlign="center";ctx.fillText(s.food.burned?"🖤":recipes[s.food.recipeKey].name.split(" ")[0],s.x+SS/2,s.y+14);ctx.textAlign="left";}
 
       if(distToStation(player,s)<80){
-        ctx.strokeStyle="#ffcd38";ctx.lineWidth=4;ctx.strokeRect(s.x-3,s.y-3,SS+6,SS+6);
-        ctx.fillStyle="#ffcd38";ctx.font="bold 9px Arial";ctx.textAlign="center";
-        ctx.fillText("[E]",s.x+SS/2,s.y+SS+18);ctx.textAlign="left";
+        ctx.strokeStyle="#ffcd38"; ctx.lineWidth=4; ctx.strokeRect(s.x-3,s.y-3,SS+6,SS+6);
+        ctx.fillStyle="#ffcd38"; ctx.font="bold 9px Arial"; ctx.textAlign="center";
+        ctx.fillText("[E]",s.x+SS/2,s.y+SS+18); ctx.textAlign="left";
       }
     }
   }
 
   function drawCharacter(char,label,holding){
-    ctx.fillStyle=char.color;ctx.fillRect(char.x,char.y,char.size,char.size);
-    ctx.fillStyle="#fff";ctx.fillRect(char.x+7,char.y+8,7,7);ctx.fillRect(char.x+16,char.y+8,7,7);
-    ctx.fillStyle="#fff";ctx.font="bold 10px Arial";ctx.strokeStyle="#000";ctx.lineWidth=3;
-    ctx.strokeText(label,char.x+2,char.y+22);ctx.fillText(label,char.x+2,char.y+22);
+    ctx.fillStyle=char.color; ctx.fillRect(char.x,char.y,char.size,char.size);
+    ctx.fillStyle="#fff"; ctx.fillRect(char.x+7,char.y+8,7,7); ctx.fillRect(char.x+16,char.y+8,7,7);
+    ctx.fillStyle="#fff"; ctx.font="bold 10px Arial"; ctx.strokeStyle="#000"; ctx.lineWidth=3;
+    ctx.strokeText(label,char.x+2,char.y+22); ctx.fillText(label,char.x+2,char.y+22);
     if(holding){ctx.font="18px Arial";ctx.fillText(holding.burned?"🖤":recipes[holding.recipeKey].name.split(" ")[0],char.x+char.size,char.y-2);}
   }
 
   function drawHUD(){
-    ctx.fillStyle="rgba(0,0,0,0.75)";ctx.fillRect(8,canvas.height-48,260,38);
-    ctx.strokeStyle="#e8e8e8";ctx.lineWidth=2;ctx.strokeRect(8,canvas.height-48,260,38);
-    ctx.fillStyle="#e8e8e8";ctx.font="bold 10px Arial";
+    ctx.fillStyle="rgba(0,0,0,0.75)"; ctx.fillRect(8,canvas.height-48,280,38);
+    ctx.strokeStyle="#e8e8e8"; ctx.lineWidth=2; ctx.strokeRect(8,canvas.height-48,280,38);
+    ctx.font="bold 10px Arial";
     if(player.holding){
       const pipeline=recipePipeline[player.holding.recipeKey];
-      const next=pipeline[player.holding.stage+1]||"SERVE";
-      ctx.fillText(`${recipes[player.holding.recipeKey].name.split(" ")[0]} → ${next.toUpperCase()}`,14,canvas.height-22);
-    }else{ctx.fillStyle="#aaa";ctx.fillText("Hands empty",14,canvas.height-22);}
+      const next=pipeline[player.holding.stage+1]||"SERVE counter";
+      ctx.fillStyle="#e8e8e8";
+      ctx.fillText(`${recipes[player.holding.recipeKey].name.split(" ")[0]} → next: ${next.toUpperCase()}`,14,canvas.height-22);
+    }else{
+      ctx.fillStyle="#aaa"; ctx.fillText("Hands empty — press E near a station",14,canvas.height-22);
+    }
+
+    // Counter status top right
+    const counter=stations.find(s=>s.id==="counter");
+    ctx.fillStyle="rgba(0,0,0,0.75)"; ctx.fillRect(canvas.width-220,canvas.height-48,212,38);
+    ctx.strokeStyle="#e8e8e8"; ctx.lineWidth=2; ctx.strokeRect(canvas.width-220,canvas.height-48,212,38);
+    ctx.fillStyle="#e8e8e8"; ctx.font="bold 10px Arial";
+    if(counter.food&&!counter.food.burned){
+      ctx.fillStyle="#2ecc71";
+      ctx.fillText(`Counter: ${recipes[counter.food.recipeKey].name.split(" ")[0]} ready!`,canvas.width-215,canvas.height-22);
+    }else{
+      ctx.fillStyle="#aaa"; ctx.fillText("Counter: empty",canvas.width-215,canvas.height-22);
+    }
   }
 
   // ============================================
@@ -499,7 +526,7 @@ function handleInteract(char){
       <div class="ingredient-item">🎯 Queue: ${customers.length}</div>
       <div class="ingredient-item">🔥 Rush: ${rushHour?"ACTIVE!":rushWarning?"INCOMING!":formatTime(nextRushIn/60)}</div>`;
 
-    if(money>=5000)document.getElementById("upgradeBtn").style.display="inline-block";
+    if(money>=5000) document.getElementById("upgradeBtn").style.display="inline-block";
   }
 
   function formatTime(s){return`${Math.floor(s/60)}m ${Math.floor(s%60)}s`;}
@@ -519,9 +546,9 @@ function handleInteract(char){
   }
 
   function showAchievement(text){
-    if(achievementQueue.includes(text))return;achievementQueue.push(text);
-    const div=document.createElement("div");div.className="achievement";div.textContent=text;
-    document.body.appendChild(div);setTimeout(()=>div.remove(),3000);
+    if(achievementQueue.includes(text))return; achievementQueue.push(text);
+    const div=document.createElement("div"); div.className="achievement"; div.textContent=text;
+    document.body.appendChild(div); setTimeout(()=>div.remove(),3000);
   }
 
   document.getElementById("buyIngredientsBtn").addEventListener("click",()=>{
@@ -540,17 +567,17 @@ function handleInteract(char){
   // ============================================
   function loop(){
     try{
-      movePlayer();updateSiblingAI();updateStations();updateRushHour();
+      movePlayer(); updateSiblingAI(); updateStations(); updateRushHour();
       customers=customers.filter(c=>c.update());
       customers=customers.filter(c=>!c.isServed);
-      draw();updateUI();
-      gameTime+=1/60;calculateEarnings();
+      draw(); updateUI();
+      gameTime+=1/60; calculateEarnings();
       requestAnimationFrame(loop);
     }catch(e){console.error(e);updateLog("⚠️ Error: "+e.message);}
   }
 
-  if(!canvas||!ctx)alert("Canvas failed!");
-  else{console.log("🍔 Snack StacK ready!");loop();}
+  if(!canvas||!ctx) alert("Canvas failed!");
+  else { console.log("🍔 Snack StacK ready!"); loop(); }
 </script>
 </body>
 </html>
