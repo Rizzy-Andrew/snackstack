@@ -43,7 +43,7 @@ button:hover{transform:translate(3px,3px);box-shadow:3px 3px 0px #000;} button:a
     <div class="stat-item" id="customers-count">👥 Served: 0</div>
   </div>
   <canvas id="game"></canvas>
-  <div class="controls-hint">WASD Move &nbsp;|&nbsp; E Interact / Serve &nbsp;|&nbsp; Q Drop food &nbsp;|&nbsp; Walk to a station + E to start cooking &nbsp;|&nbsp; Pick up when done, bring to SERVE counter!</div>
+  <div class="controls-hint">WASD Move &nbsp;|&nbsp; E Interact / Serve &nbsp;|&nbsp; Q Drop food &nbsp;|&nbsp; Walk to station + E to cook &nbsp;|&nbsp; Pick up when done, bring to SERVE counter!</div>
   <div class="game-panels">
     <div class="panel"><h3>📋 Recipes</h3><div id="recipes" class="panel-content"></div></div>
     <div class="panel"><h3>🥡 Inventory</h3><div id="ingredients" class="panel-content"></div></div>
@@ -84,7 +84,7 @@ button:hover{transform:translate(3px,3px);box-shadow:3px 3px 0px #000;} button:a
   // ============================================
   // STATIONS
   // ============================================
-  const SS = 52; // station size
+  const SS = 52;
   const stations = [
     {id:"prep",   label:"PREP",  emoji:"🔪",x:30, y:60, color:"#8e44ad",cookTime:150,burnTime:300,food:null,cookTimer:0,state:"idle"},
     {id:"grill",  label:"GRILL", emoji:"🔥",x:110,y:60, color:"#c0392b",cookTime:200,burnTime:350,food:null,cookTimer:0,state:"idle"},
@@ -123,9 +123,9 @@ button:hover{transform:translate(3px,3px);box-shadow:3px 3px 0px #000;} button:a
   const player = {x:300,y:350,size:30,speed:4,color:"#ff6b35",name:"You",holding:null};
 
   // ============================================
-  // SIBLING
+  // SIBLING — faster speed, faster AI tick
   // ============================================
-  const sibling = {x:400,y:350,size:30,speed:2.5,color:"#3498db",name:"Sibling",holding:null,aiTimer:0,totalServed:0};
+  const sibling = {x:400,y:350,size:30,speed:4,color:"#3498db",name:"Sibling",holding:null,aiTimer:0,totalServed:0};
 
   // ============================================
   // INPUT
@@ -139,13 +139,15 @@ button:hover{transform:translate(3px,3px);box-shadow:3px 3px 0px #000;} button:a
   document.addEventListener("keyup",e=>keys[e.key.toLowerCase()]=false);
 
   function handleInteract(char){
-    // Try to serve a customer if near the counter and counter has matching food
     const counter=stations.find(s=>s.id==="counter");
+
+    // Try to serve a nearby waiting customer if counter has their food
     for(let c of customers){
-      if(!c.waiting||c.isServed)continue;
-      if(Math.hypot(char.x-c.x,char.y-c.y)<130){
+      if(!c.waiting||c.isServed) continue;
+      if(Math.hypot(char.x-c.x,char.y-c.y)<200){
         if(counter.food&&counter.food.recipeKey===c.recipe&&!counter.food.burned){
-          serveCustomer(c,counter);return;
+          serveCustomer(c,counter);
+          return;
         }
       }
     }
@@ -153,10 +155,9 @@ button:hover{transform:translate(3px,3px);box-shadow:3px 3px 0px #000;} button:a
     // Find nearest station
     let best=null,bestD=80;
     for(let s of stations){const d=distToStation(char,s);if(d<bestD){best=s;bestD=d;}}
-    if(!best)return;
+    if(!best) return;
 
     if(best.id==="counter"){
-      // Place held food on counter
       if(char.holding&&!counter.food){
         const pipeline=recipePipeline[char.holding.recipeKey];
         if(char.holding.stage===pipeline.length-1){
@@ -170,10 +171,8 @@ button:hover{transform:translate(3px,3px);box-shadow:3px 3px 0px #000;} button:a
       return;
     }
 
-    // Non-counter station
     if(best.state==="idle"&&!best.food){
       if(char.holding){
-        // Place held food to cook next step
         const pipeline=recipePipeline[char.holding.recipeKey];
         const nextIdx=char.holding.stage+1;
         if(nextIdx<pipeline.length&&pipeline[nextIdx]===best.id){
@@ -184,7 +183,6 @@ button:hover{transform:translate(3px,3px);box-shadow:3px 3px 0px #000;} button:a
           updateLog(`❌ Wrong station! Take to ${needed.toUpperCase()} next.`);
         }
       }else{
-        // Start a new dish
         const candidates=Object.keys(recipes).filter(k=>recipes[k].unlocked&&recipePipeline[k][0]===best.id&&hasIngredients(k));
         if(!candidates.length){updateLog(`❌ No recipes for ${best.label} or missing ingredients!`);return;}
         const rk=candidates[0];useIngredients(rk);
@@ -207,7 +205,7 @@ button:hover{transform:translate(3px,3px);box-shadow:3px 3px 0px #000;} button:a
   }
 
   function handleDrop(char){
-    if(!char.holding){return;}
+    if(!char.holding)return;
     char.holding=null;updateLog("🗑️ Dropped food.");
   }
 
@@ -240,21 +238,19 @@ button:hover{transform:translate(3px,3px);box-shadow:3px 3px 0px #000;} button:a
   }
 
   // ============================================
-  // SIBLING AI
+  // SIBLING AI — faster tick (20 frames), faster speed (4)
   // ============================================
   function updateSiblingAI(){
     sibling.aiTimer++;
-    if(sibling.aiTimer<45)return;
+    if(sibling.aiTimer<20)return;
     sibling.aiTimer=0;
 
     const counter=stations.find(s=>s.id==="counter");
 
-    // If holding: go to next station or counter
     if(sibling.holding){
       const pipeline=recipePipeline[sibling.holding.recipeKey];
       const nextIdx=sibling.holding.stage+1;
       if(nextIdx>=pipeline.length){
-        // deliver to counter
         if(!counter.food){
           if(distToStation(sibling,counter)<65){counter.food={...sibling.holding};counter.state="ready";sibling.holding=null;}
           else moveTo(sibling,stationCenter(counter));
@@ -278,11 +274,11 @@ button:hover{transform:translate(3px,3px);box-shadow:3px 3px 0px #000;} button:a
       }
     }
 
-    // Serve customer if counter has food
+    // Serve customer if counter has matching food
     if(counter.food&&!counter.food.burned){
       for(let c of customers){
         if(c.waiting&&!c.isServed&&counter.food.recipeKey===c.recipe){
-          if(Math.hypot(sibling.x-c.x,sibling.y-c.y)<80){serveCustomer(c,counter);sibling.totalServed++;}
+          if(Math.hypot(sibling.x-c.x,sibling.y-c.y)<150){serveCustomer(c,counter);sibling.totalServed++;}
           else moveTo(sibling,{x:c.x,y:c.y});
           return;
         }
@@ -359,12 +355,11 @@ button:hover{transform:translate(3px,3px);box-shadow:3px 3px 0px #000;} button:a
         ctx.fillStyle=g;ctx.fillRect(this.x,this.y-38,fw,bh);
         ctx.strokeStyle="#2c3e50";ctx.lineWidth=2;ctx.strokeRect(this.x,this.y-38,bw,bh);
 
-        // Highlight if player near and counter has their food
         const counter=stations.find(s=>s.id==="counter");
         const canServe=counter.food&&counter.food.recipeKey===this.recipe&&!counter.food.burned;
-        if(Math.hypot(player.x-this.x,player.y-this.y)<130){
+        if(Math.hypot(player.x-this.x,player.y-this.y)<200){
           ctx.fillStyle=canServe?"rgba(46,204,113,0.9)":"rgba(180,30,30,0.8)";
-          ctx.fillRect(this.x-10,this.y-58,canServe?90:120,16);
+          ctx.fillRect(this.x-10,this.y-58,canServe?90:130,16);
           ctx.fillStyle="#fff";ctx.font="bold 9px Arial";
           ctx.fillText(canServe?"E to Serve!":"Need: "+recipes[this.recipe].name.split(" ")[0],this.x-6,this.y-46);
         }
@@ -403,16 +398,12 @@ button:hover{transform:translate(3px,3px);box-shadow:3px 3px 0px #000;} button:a
   // ============================================
   function draw(){
     ctx.clearRect(0,0,canvas.width,canvas.height);
-
-    // Kitchen floor
     ctx.fillStyle="#d4a96a";ctx.fillRect(0,0,canvas.width,canvas.height);
     for(let x=0;x<canvas.width;x+=48)for(let y=0;y<canvas.height;y+=48){
       ctx.strokeStyle="rgba(0,0,0,0.08)";ctx.lineWidth=1;ctx.strokeRect(x,y,48,48);
     }
-    // Counter top strip
     ctx.fillStyle="#5a3510";ctx.fillRect(0,0,canvas.width,145);
     ctx.fillStyle="#7a4a20";ctx.fillRect(0,130,canvas.width,18);
-
     drawStations();
     customers.forEach(c=>c.draw());
     drawCharacter(sibling,"SIB",sibling.holding);
@@ -426,21 +417,15 @@ button:hover{transform:translate(3px,3px);box-shadow:3px 3px 0px #000;} button:a
       let col=s.color;
       if(s.state==="burned")col="#1a1a1a";
       else if(s.state==="ready")col="#1e8449";
-
-      // Shadow
       ctx.fillStyle="rgba(0,0,0,0.3)";ctx.fillRect(s.x+4,s.y+4,SS,SS);
-      // Body
       ctx.fillStyle=col;ctx.fillRect(s.x,s.y,SS,SS);
       ctx.strokeStyle="#000";ctx.lineWidth=3;ctx.strokeRect(s.x,s.y,SS,SS);
-
-      // Emoji + label
       ctx.font="22px Arial";ctx.textAlign="center";
       ctx.fillText(s.emoji,s.x+SS/2,s.y+28);
       ctx.fillStyle="#fff";ctx.font="bold 7px Arial";
       ctx.fillText(s.label,s.x+SS/2,s.y+SS-5);
       ctx.textAlign="left";
 
-      // Cook progress bar
       if(s.state==="cooking"&&s.cookTime>0){
         const prog=Math.min(s.cookTimer/s.cookTime,1);
         const burnProg=s.cookTimer>s.cookTime?(s.cookTimer-s.cookTime)/s.burnTime:0;
@@ -449,25 +434,12 @@ button:hover{transform:translate(3px,3px);box-shadow:3px 3px 0px #000;} button:a
         ctx.fillStyle=burnProg>0?"#e74c3c":"#2ecc71";
         ctx.fillRect(s.x+2,s.y+SS+3,bw*(burnProg>0?1-burnProg:prog),bh);
         ctx.strokeStyle="#000";ctx.lineWidth=1;ctx.strokeRect(s.x+2,s.y+SS+3,bw,bh);
-        // burn countdown shrinks from right
-        if(burnProg>0){
-          ctx.fillStyle="rgba(231,76,60,0.5)";
-          ctx.fillRect(s.x+2+bw*(1-burnProg),s.y+SS+3,bw*burnProg,bh);
-        }
       }
 
-      // Status icon
       if(s.state==="ready"){ctx.font="16px Arial";ctx.textAlign="center";ctx.fillText("✅",s.x+SS/2,s.y-4);ctx.textAlign="left";}
       if(s.state==="burned"){ctx.font="16px Arial";ctx.textAlign="center";ctx.fillText("💀",s.x+SS/2,s.y-4);ctx.textAlign="left";}
+      if(s.food){ctx.font="16px Arial";ctx.textAlign="center";ctx.fillText(s.food.burned?"🖤":recipes[s.food.recipeKey].name.split(" ")[0],s.x+SS/2,s.y+14);ctx.textAlign="left";}
 
-      // Food on station
-      if(s.food){
-        ctx.font="16px Arial";ctx.textAlign="center";
-        ctx.fillText(s.food.burned?"🖤":recipes[s.food.recipeKey].name.split(" ")[0],s.x+SS/2,s.y+14);
-        ctx.textAlign="left";
-      }
-
-      // Highlight if player near
       if(distToStation(player,s)<80){
         ctx.strokeStyle="#ffcd38";ctx.lineWidth=4;ctx.strokeRect(s.x-3,s.y-3,SS+6,SS+6);
         ctx.fillStyle="#ffcd38";ctx.font="bold 9px Arial";ctx.textAlign="center";
@@ -481,25 +453,18 @@ button:hover{transform:translate(3px,3px);box-shadow:3px 3px 0px #000;} button:a
     ctx.fillStyle="#fff";ctx.fillRect(char.x+7,char.y+8,7,7);ctx.fillRect(char.x+16,char.y+8,7,7);
     ctx.fillStyle="#fff";ctx.font="bold 10px Arial";ctx.strokeStyle="#000";ctx.lineWidth=3;
     ctx.strokeText(label,char.x+2,char.y+22);ctx.fillText(label,char.x+2,char.y+22);
-    if(holding){
-      ctx.font="18px Arial";
-      ctx.fillText(holding.burned?"🖤":recipes[holding.recipeKey].name.split(" ")[0],char.x+char.size,char.y-2);
-    }
+    if(holding){ctx.font="18px Arial";ctx.fillText(holding.burned?"🖤":recipes[holding.recipeKey].name.split(" ")[0],char.x+char.size,char.y-2);}
   }
 
   function drawHUD(){
-    // Holding bar
-    ctx.fillStyle="rgba(0,0,0,0.75)";ctx.fillRect(8,canvas.height-48,240,38);
-    ctx.strokeStyle="#e8e8e8";ctx.lineWidth=2;ctx.strokeRect(8,canvas.height-48,240,38);
+    ctx.fillStyle="rgba(0,0,0,0.75)";ctx.fillRect(8,canvas.height-48,260,38);
+    ctx.strokeStyle="#e8e8e8";ctx.lineWidth=2;ctx.strokeRect(8,canvas.height-48,260,38);
     ctx.fillStyle="#e8e8e8";ctx.font="bold 10px Arial";
     if(player.holding){
-      const r=recipes[player.holding.recipeKey];
       const pipeline=recipePipeline[player.holding.recipeKey];
       const next=pipeline[player.holding.stage+1]||"SERVE";
-      ctx.fillText(`${r.name.split(" ")[0]} → ${next.toUpperCase()}`,14,canvas.height-22);
-    }else{
-      ctx.fillStyle="#aaa";ctx.fillText("Hands empty",14,canvas.height-22);
-    }
+      ctx.fillText(`${recipes[player.holding.recipeKey].name.split(" ")[0]} → ${next.toUpperCase()}`,14,canvas.height-22);
+    }else{ctx.fillStyle="#aaa";ctx.fillText("Hands empty",14,canvas.height-22);}
   }
 
   // ============================================
