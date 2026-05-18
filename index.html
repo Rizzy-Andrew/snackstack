@@ -138,72 +138,70 @@ button:hover{transform:translate(3px,3px);box-shadow:3px 3px 0px #000;} button:a
   });
   document.addEventListener("keyup",e=>keys[e.key.toLowerCase()]=false);
 
-  function handleInteract(char){
-    const counter=stations.find(s=>s.id==="counter");
+function handleInteract(char){
+  const counter=stations.find(s=>s.id==="counter");
 
-    // Try to serve a nearby waiting customer if counter has their food
+  // If counter has food, try to match ANY waiting customer — no distance check
+  if(counter.food&&!counter.food.burned){
     for(let c of customers){
-      if(!c.waiting||c.isServed) continue;
-      if(Math.hypot(char.x-c.x,char.y-c.y)<200){
-        if(counter.food&&counter.food.recipeKey===c.recipe&&!counter.food.burned){
-          serveCustomer(c,counter);
-          return;
-        }
+      if(c.waiting&&!c.isServed&&counter.food.recipeKey===c.recipe){
+        serveCustomer(c,counter);
+        return;
       }
-    }
-
-    // Find nearest station
-    let best=null,bestD=80;
-    for(let s of stations){const d=distToStation(char,s);if(d<bestD){best=s;bestD=d;}}
-    if(!best) return;
-
-    if(best.id==="counter"){
-      if(char.holding&&!counter.food){
-        const pipeline=recipePipeline[char.holding.recipeKey];
-        if(char.holding.stage===pipeline.length-1){
-          counter.food={...char.holding};counter.state="ready";char.holding=null;
-          updateLog("🍽️ Food on counter! Walk to a customer and press E.");
-        }else{updateLog("❌ Not ready to serve yet!");}
-      }else if(counter.food&&!char.holding){
-        char.holding={...counter.food};counter.food=null;counter.state="idle";
-        updateLog("📦 Picked up from counter.");
-      }
-      return;
-    }
-
-    if(best.state==="idle"&&!best.food){
-      if(char.holding){
-        const pipeline=recipePipeline[char.holding.recipeKey];
-        const nextIdx=char.holding.stage+1;
-        if(nextIdx<pipeline.length&&pipeline[nextIdx]===best.id){
-          best.food={...char.holding};best.food.stage=nextIdx;best.cookTimer=0;best.state="cooking";
-          char.holding=null;updateLog(`🍳 Cooking step ${nextIdx+1} on ${best.label}...`);
-        }else{
-          const needed=pipeline[nextIdx]||"SERVE";
-          updateLog(`❌ Wrong station! Take to ${needed.toUpperCase()} next.`);
-        }
-      }else{
-        const candidates=Object.keys(recipes).filter(k=>recipes[k].unlocked&&recipePipeline[k][0]===best.id&&hasIngredients(k));
-        if(!candidates.length){updateLog(`❌ No recipes for ${best.label} or missing ingredients!`);return;}
-        const rk=candidates[0];useIngredients(rk);
-        best.food={recipeKey:rk,stage:0,burned:false};best.cookTimer=0;best.state="cooking";
-        updateLog(`🍳 Started ${recipes[rk].name}! Don't let it burn!`);
-      }
-    }else if(best.state==="ready"){
-      if(!char.holding){
-        char.holding={...best.food};best.food=null;best.state="idle";best.cookTimer=0;
-        const pipeline=recipePipeline[char.holding.recipeKey];
-        const next=pipeline[char.holding.stage+1];
-        updateLog(next?`➡️ Next: take to ${next.toUpperCase()}`:`✅ Done! Bring to SERVE counter.`);
-      }else{updateLog("❌ Hands full! Press Q to drop.");}
-    }else if(best.state==="burned"){
-      best.food=null;best.state="idle";best.cookTimer=0;updateLog("🗑️ Cleared burned food.");
-    }else if(best.state==="cooking"){
-      const pct=Math.floor(best.cookTimer/best.cookTime*100);
-      updateLog(`⏳ ${best.label} cooking... ${Math.min(pct,100)}%`);
     }
   }
 
+  // Find nearest station
+  let best=null,bestD=80;
+  for(let s of stations){const d=distToStation(char,s);if(d<bestD){best=s;bestD=d;}}
+  if(!best)return;
+
+  if(best.id==="counter"){
+    if(char.holding&&!counter.food){
+      const pipeline=recipePipeline[char.holding.recipeKey];
+      if(char.holding.stage===pipeline.length-1){
+        counter.food={...char.holding};counter.state="ready";char.holding=null;
+        updateLog("🍽️ Food on counter! Press E to serve!");
+      }else{updateLog("❌ Not ready to serve yet!");}
+    }else if(counter.food&&!char.holding){
+      char.holding={...counter.food};counter.food=null;counter.state="idle";
+      updateLog("📦 Picked up from counter.");
+    }
+    return;
+  }
+
+  if(best.state==="idle"&&!best.food){
+    if(char.holding){
+      const pipeline=recipePipeline[char.holding.recipeKey];
+      const nextIdx=char.holding.stage+1;
+      if(nextIdx<pipeline.length&&pipeline[nextIdx]===best.id){
+        best.food={...char.holding};best.food.stage=nextIdx;best.cookTimer=0;best.state="cooking";
+        char.holding=null;updateLog(`🍳 Cooking step ${nextIdx+1} on ${best.label}...`);
+      }else{
+        const needed=pipeline[nextIdx]||"SERVE";
+        updateLog(`❌ Wrong station! Take to ${needed.toUpperCase()} next.`);
+      }
+    }else{
+      const candidates=Object.keys(recipes).filter(k=>recipes[k].unlocked&&recipePipeline[k][0]===best.id&&hasIngredients(k));
+      if(!candidates.length){updateLog(`❌ No recipes for ${best.label} or missing ingredients!`);return;}
+      const rk=candidates[0];useIngredients(rk);
+      best.food={recipeKey:rk,stage:0,burned:false};best.cookTimer=0;best.state="cooking";
+      updateLog(`🍳 Started ${recipes[rk].name}! Don't let it burn!`);
+    }
+  }else if(best.state==="ready"){
+    if(!char.holding){
+      char.holding={...best.food};best.food=null;best.state="idle";best.cookTimer=0;
+      const pipeline=recipePipeline[char.holding.recipeKey];
+      const next=pipeline[char.holding.stage+1];
+      updateLog(next?`➡️ Next: take to ${next.toUpperCase()}`:`✅ Done! Bring to SERVE counter.`);
+    }else{updateLog("❌ Hands full! Press Q to drop.");}
+  }else if(best.state==="burned"){
+    best.food=null;best.state="idle";best.cookTimer=0;updateLog("🗑️ Cleared burned food.");
+  }else if(best.state==="cooking"){
+    updateLog(`⏳ ${best.label} cooking... ${Math.min(Math.floor(best.cookTimer/best.cookTime*100),100)}%`);
+  }
+}
+  
   function handleDrop(char){
     if(!char.holding)return;
     char.holding=null;updateLog("🗑️ Dropped food.");
